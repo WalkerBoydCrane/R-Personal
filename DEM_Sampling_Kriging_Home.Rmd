@@ -1,0 +1,458 @@
+---
+title: "DEM, Sampling, and Krigging"
+author: "Walker Crane"
+date: "2023-07-21"
+output: html_document
+---
+
+#Home, Selecting property, clipping raster data, creating GeoTiff, plotting Raster with property boundaries
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(scales)
+library(sf)
+library(sp)
+library(terra)
+library(rasterVis)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+#raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_13_n31w097_20191107.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(71967)
+
+# Use %in% to filter rows
+crane_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Set the CRS of the shapefile to match the CRS of the raster
+proj4string(crane_prop) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+proj4string(crane_prop)
+projection(raster_data) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+projection(raster_data)
+
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+
+# Step 5: Convert parcel_data to an sf object
+crane_prop_sf <- st_as_sf(crane_prop)
+
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+raster_df$Elev_Feet <- raster_df$Layer_1*3.28084
+
+# Step 5: Convert parcel_data to an sf object
+crane_prop_sf <- st_as_sf(crane_prop)
+
+# Step 6: Clip the raster using the land parcel polygon
+raster_clip <- crop(raster_data, st_buffer(crane_prop_sf, dist = 20))
+raster_clip <- raster_clip*3.28084
+
+# Step 7: Save the raster layer to a Geotiff file
+writeRaster(raster_clip, filename = "raster_DF_crane_prop.tif", format = "GTiff", overwrite= TRUE)
+
+# Step 8; Load DEM tiff
+elevation <- raster("raster_DF_crane_prop.tif")
+plot(elevation)
+str(elevation)
+names(elevation)
+
+# Convert the raster data to a data.frame
+elevation_df <- raster::rasterToPoints(elevation)
+elevation_df <- as.data.frame(elevation_df)
+
+# Load ggplot2 and ggspatial
+library(ggplot2)
+library(ggspatial)
+
+# Function to convert decimal degrees to DMS format with cardinal directions
+decimal_to_dms_with_directions <- function(decimal_degrees, axis) {
+  degrees <- floor(abs(decimal_degrees))
+  minutes <- floor((abs(decimal_degrees) - degrees) * 60)
+  seconds <- round((abs(decimal_degrees) - degrees - minutes/60) * 3600, 2)
+  
+  direction <- ifelse(axis == "x", ifelse(decimal_degrees < 0, "W", "E"), ifelse(decimal_degrees < 0, "S", "N"))
+  
+  return(paste0(degrees, "°", minutes, "'", seconds, "\" ", direction))
+}
+
+# Plot the shapefile with ggplot2 and add the raster data as a background layer
+ggplot() +
+  geom_raster(data = elevation_df, aes(x = x, y = y, fill = raster_DF_crane_prop)) +    # Plot the raster data
+  geom_sf(data = crane_prop_sf, color = "black", fill = "transparent") +       # Plot the shapefile
+  scale_fill_viridis_c() +                                                              # Use Viridis color scale (you can change this)
+  coord_sf(crs = st_crs(crane_prop_sf)) +                                     # Set the coordinate system for the plot
+  labs(x = "Longitude", y = "Latitude", fill = "Digital Elevation Model (ft above Sea Level)") +
+  scale_x_continuous(labels = function(x) decimal_to_dms_with_directions(x, "x"), expand = c(0, 0)) +  # Use custom labeling for X-axis
+  scale_y_continuous(labels = function(y) decimal_to_dms_with_directions(y, "y"), expand = c(0, 0)) +  # Use custom labeling for Y-axis
+  theme(axis.title.x = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(size = 6.5, color = "black"),
+        axis.title.y = element_text(size = 12, color = "black"),
+        axis.text.y = element_text(size = 6.5, color = "black"),
+        legend.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+```
+#Home, Creating terrain elements, plotting elements
+```{r}
+#Create DEM
+DEM <- raster("raster_DF_crane_prop.tif")
+
+## Calculate the following terrain parameters using "terrain" function: ('Terrain' requires RasterLayer)
+## slope, aspect, tpi, tri, roughness, flowdir 
+slope <- terrain(DEM, opt=c("slope"), unit="degrees")    
+aspect <- terrain(DEM, opt=c("aspect"), unit="degrees")
+tpi <- terrain(DEM, opt=c("tpi"))  ## Topographic Position Index
+tri <- terrain(DEM, opt=c("tri"))  ## Terrain Ruggedness Index
+roughness <- terrain(DEM, opt=c("roughness"))
+flowdir <- terrain(DEM, opt=c("flowdir"))
+
+
+??terrain
+## 4. Stack all the terrain parameters including DEM data into a new variable called "terrain"
+terrain <- stack(DEM, slope, aspect, tpi, tri, roughness, flowdir)
+
+
+# Convert the raster data to a data.frame
+flowdir_df <- raster::rasterToPoints(flowdir)
+flowdir_df <- as.data.frame(flowdir_df)
+
+# Calculate the center coordinates of each cell
+flowdir_df$x_center <- flowdir_df$x + 0.5 * res(flowdir)[1]
+flowdir_df$y_center <- flowdir_df$y + 0.5 * res(flowdir)[2]
+
+# Create the flow direction plot using ggplot2
+ggplot() +
+  geom_raster(data = flowdir_df, aes(x = x, y = y, fill = flowdir)) +    # Plot the raster data
+  geom_sf(data = expanded_crane_prop_sf, color = "black", fill = "transparent") +       # Plot the shapefile
+  geom_segment(data = flowdir_df, aes(x = x_center, y = y_center, xend = x_center + cos(flowdir * pi/180),
+                                     yend = y_center + sin(flowdir * pi/180)),
+               arrow = arrow(length = unit(0.2, "inches")), color = "blue", size = 0.5) +  # Add arrows for flow direction
+  scale_fill_viridis_c() +                                                              # Use Viridis color scale (you can change this)
+  coord_sf(crs = st_crs(expanded_crane_prop_sf)) +                                     # Set the coordinate system for the plot
+  labs(x = "Longitude", y = "Latitude", fill = "Flow Direction") +
+  scale_x_continuous(labels = function(x) decimal_to_dms_with_directions(x, "x"), expand = c(0, 0)) +  # Use custom labeling for X-axis
+  scale_y_continuous(labels = function(y) decimal_to_dms_with_directions(y, "y"), expand = c(0, 0)) +  # Use custom labeling for Y-axis
+  theme(axis.title.x = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(size = 6.5, color = "black"),
+        axis.title.y = element_text(size = 12, color = "black"),
+        axis.text.y = element_text(size = 6.5, color = "black"),
+        legend.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+```
+# Loading raster and parcel data, creating a GeoTiff
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(scales)
+library(sf)
+library(sp)
+library(terra)
+library(rasterVis)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+#raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_13_n31w097_20191107.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(71967)
+
+# Use %in% to filter rows
+crane_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Set the CRS of the shapefile to match the CRS of the raster
+proj4string(crane_prop) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+proj4string(crane_prop)
+projection(raster_data) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+projection(raster_data)
+
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+
+# Step 5: Convert parcel_data to an sf object
+crane_prop_sf <- st_as_sf(crane_prop)
+
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+raster_df$Elev_Feet <- raster_df$Layer_1*3.28084
+
+# Step 5: Convert parcel_data to an sf object
+crane_prop_sf <- st_as_sf(crane_prop)
+
+# Step 6: Clip the raster using the land parcel polygon
+raster_clip <- crop(raster_data, st_buffer(crane_prop_sf, dist = 20))
+raster_clip <- raster_clip*3.28084
+
+# Step 7: Save the raster layer to a Geotiff file
+writeRaster(raster_clip, filename = "raster_DF_crane_prop.tif", format = "GTiff", overwrite= TRUE)
+
+# Step 8; Load DEM tiff
+elevation <- raster("raster_DF_crane_prop.tif")
+
+# Convert the raster data to a data.frame
+elevation_df <- raster::rasterToPoints(elevation)
+elevation_df <- as.data.frame(elevation_df)
+```
+
+# Creating function to create number of samples per area
+```{r}
+set_sampling_points <- function(polygon_sf) {
+  # Get the total area of the polygon in acres from the "GIS_AREA" column
+  total_area_acres <- sum(polygon_sf$GIS_AREA)
+  
+  # Set the number of sampling points based on the area criteria
+  if (total_area_acres <= 1) {
+    num_sampling_points <- 10
+  } else if (total_area_acres > 1 & total_area_acres <= 5) {
+    num_sampling_points <- round(total_area_acres * 2)
+  } else if (total_area_acres > 5 & total_area_acres <= 20) {
+    num_sampling_points <- round(total_area_acres / 2)
+  } else {
+    num_sampling_points <- round(total_area_acres)
+  }
+  
+  return(num_sampling_points)
+}
+
+# Assuming you have the "crane_prop_sf" data frame with the column "GIS_AREA"
+num_sampling_points <- set_sampling_points(crane_prop_sf)
+
+print(num_sampling_points)  # This will give you the number of sampling points based on the area of the polygons and the specified criteria
+```
+
+#Creating polygons for pond and and yard
+```{r}
+# Load ggplot2 and ggspatial
+library(ggplot2)
+library(ggspatial)
+
+# Function to convert decimal degrees to DMS format with cardinal directions
+decimal_to_dms_with_directions <- function(decimal_degrees, axis) {
+  degrees <- floor(abs(decimal_degrees))
+  minutes <- floor((abs(decimal_degrees) - degrees) * 60)
+  seconds <- round((abs(decimal_degrees) - degrees - minutes/60) * 3600, 2)
+  
+  direction <- ifelse(axis == "x", ifelse(decimal_degrees < 0, "W", "E"), ifelse(decimal_degrees < 0, "S", "N"))
+  
+  return(paste0(degrees, "°", minutes, "'", seconds, "\" ", direction))
+}
+
+# Generate equally spaced sampling points within the property boundaries based on sample number function
+sampling_points <- st_sample(crane_prop_sf, type = "regular", size = num_sampling_points)
+
+# Extract longitude (X) and latitude (Y) values from the POINT geometry
+sampling_points_df <- as.data.frame(st_coordinates(sampling_points))
+names(sampling_points_df) <- c("X", "Y")  # Rename columns for clarity
+
+
+
+# Function to convert DMS (Degrees-Minutes-Seconds) to decimal degrees (DD)
+dms_to_dd <- function(degrees, minutes, seconds, direction) {
+  sign <- ifelse(direction %in% c("S", "W"), -1, 1)
+  dd <- sign * (abs(degrees) + minutes / 60 + seconds / 3600)
+  return(dd)
+}
+
+# Function to convert meters to decimal degrees
+meters_to_dd <- function(meters, latitude) {
+  # Earth's radius in meters
+  earth_radius <- 6378137
+  
+  # Conversion factor (approximation for small distances)
+  meters_per_degree <- (2 * pi * earth_radius) / 360
+  
+  # Calculate the distance in decimal degrees
+  dd <- meters / meters_per_degree
+  
+  return(dd)
+}
+
+# Buffer distance in meters
+buffer_distance_meters <- 30
+
+# Example of pond_location in DMS format
+lon_deg <- 96
+lon_min <- 56
+lon_sec <- 36.2
+lon_dir <- "W"  # West (use "E" for East)
+
+lat_deg <- 30
+lat_min <- 41
+lat_sec <- 10
+lat_dir <- "N"  # North (use "S" for South)
+
+# Convert DMS to decimal degrees (DD) for longitude and latitude
+lon_pond_dd <- dms_to_dd(lon_deg, lon_min, lon_sec, lon_dir)
+lat_pond_dd <- dms_to_dd(lat_deg, lat_min, lat_sec, lat_dir)
+
+# Convert buffer distance from meters to decimal degrees
+buffer_distance_dd <- meters_to_dd(buffer_distance_meters, lat_pond_dd)
+
+# Create the pond_location as a point in sf format
+pond_central_point <- st_point(c(lon_pond_dd, lat_pond_dd))
+
+# Add a buffer of 50 meters around the pond_central_point
+pond_buffer <- st_buffer(pond_central_point, dist = buffer_distance_dd, crs = "+init=epsg:4326")
+
+# Extract the x (longitude) and y (latitude) coordinates from the circle
+circle_coords <- st_coordinates(pond_buffer)
+
+# Create a dataframe with the circle coordinates
+circle_df <- data.frame(lon = circle_coords[, "X"], lat = circle_coords[, "Y"])
+
+pond_boundary_Poly <- Polygon(circle_df)
+pond_boundary_Poly_ps <- Polygons(list(pond_boundary_Poly),1)
+pond_boundary_Poly_sps <- SpatialPolygons(list(pond_boundary_Poly_ps))
+plot(pond_boundary_Poly_sps)
+proj4string(pond_boundary_Poly_sps) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+data = data.frame(f=99.9)
+spdf_pond = SpatialPolygonsDataFrame(pond_boundary_Poly_sps,data)
+spdf_pond
+summary(spdf_pond)
+
+spdf_pond <- st_as_sf(spdf_pond)
+spdf_pond <- st_transform(spdf_pond, st_crs(sampling_area))
+
+# # Convert sf polygons to data frames
+# pond_boundary_df <- st_coordinates(pond_boundary_sf) %>%
+#   as.data.frame() %>%
+#   setNames(c("X", "Y"))
+
+# Five points in DMS format
+# Replace these values with your DMS coordinates for the five points
+lon_deg <- c(96, 96, 96, 96, 96)
+lon_min <- c(56, 56, 56, 56,56)
+lon_sec <- c(33.32,33.01, 31.66, 29.71, 29.50)
+lon_dir <- rep("W", 5)  # West (use "E" for East)
+
+lat_deg <- c(30, 30, 30, 30, 30)
+lat_min <- c(41, 41, 41, 41, 41)
+lat_sec <- c(8.95, 11.12, 11.59, 10.83, 9.91)
+lat_dir <- rep("N", 5)  # North (use "S" for South)
+
+# Convert DMS to decimal degrees (DD) for longitude and latitude for all five points
+lon_dd <- dms_to_dd(lon_deg, lon_min, lon_sec, lon_dir)
+lat_dd <- dms_to_dd(lat_deg, lat_min, lat_sec, lat_dir)
+
+# Create an sf polygon object from the five points (assumes a closed polygon)
+yard_boundary <- as.data.frame(list(rbind(c(lon_dd[1], lat_dd[1]),  # Point 1
+                                         c(lon_dd[2], lat_dd[2]),  # Point 2
+                                         c(lon_dd[3], lat_dd[3]),  # Point 3
+                                         c(lon_dd[4], lat_dd[4]),  # Point 4
+                                         c(lon_dd[5], lat_dd[5]),  # Point 5
+                                         c(lon_dd[1], lat_dd[1]))))
+
+yard_boundary_Poly <- Polygon(yard_boundary)
+yard_boundary_Poly_ps <- Polygons(list(yard_boundary_Poly),1)
+yard_boundary_Poly_sps <- SpatialPolygons(list(yard_boundary_Poly_ps))
+plot(yard_boundary_Poly_sps)
+proj4string(yard_boundary_Poly_sps) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+data = data.frame(f=99.9)
+spdf_yard = SpatialPolygonsDataFrame(yard_boundary_Poly_sps,data)
+spdf_yard
+summary(spdf_yard)
+
+# Set as simple feature
+spdf_yard <- st_as_sf(spdf_yard)
+spdf_yard <- st_transform(spdf_yard, st_crs(sampling_area))
+```
+
+# Defining sampling area, sample size and removing yard and pond points
+```{r}
+# install.packages("spatstat")
+# library(spatstat)
+# spatstat.random::rThomas()
+
+# Define the sampling area within the property boundaries (can be the entire property or a specific region)
+sampling_area <- crane_prop_sf
+sampling_area <- st_transform(sampling_area, st_crs(crane_prop_sf))
+
+# Now both sampling_area and pond_boundary_Poly_sps have the same CRS, and st_difference should work without any errors.
+sampling_area_excluded <- st_difference(sampling_area, spdf_yard)
+sampling_area_excluded <- st_difference(sampling_area_excluded, spdf_pond)
+plot(sampling_area_excluded)
+
+# Generate sampling points within the updated sampling area (excluding pond and yard)
+sampling_points_final <- st_sample(sampling_area_excluded, type = "regular", size = num_sampling_points)
+??st_sample
+# Convert the sampling points to a data.frame with separate columns for longitude (X) and latitude (Y)
+sampling_points_df_final <- as.data.frame(st_coordinates(sampling_points_final))
+names(sampling_points_df_final) <- c("X", "Y")  # Rename columns for clarity
+
+# Add DMS coordinates to sampling_points_df_final data frame
+sampling_points_df_final$Longitude_DMS <- decimal_to_dms_with_directions(sampling_points_df_final$X, "x")
+sampling_points_df_final$Latitude_DMS <- decimal_to_dms_with_directions(sampling_points_df_final$Y, "y")
+
+
+# Add a new column "Sample_Number" to the sampling_points_df_final data frame with the sampling numbers
+sampling_points_df_final$Sample_Number <- 1:nrow(sampling_points_df_final)
+
+#Create .csv file with sample points, coordinates, and number
+NoCentsRanchSamplingPoints <- write.csv(sampling_points_df_final, "NoCentsSamplingPoints.csv")
+
+```
+
+#Plot parcel boundary with pond and yard polygons with sampling points
+```{r}
+# Calculate the centroid of the polygon
+yard_centroid <- st_centroid(yard_boundary_sf)
+
+yard_centroid_df <- st_coordinates(yard_centroid) %>%
+  as.data.frame() %>%
+  setNames(c("X", "Y"))
+
+# Calculate the centroid of the polygon
+pond_centroid <- st_centroid(pond_boundary_sf)
+
+pond_centroid_df <- st_coordinates(pond_centroid) %>%
+  as.data.frame() %>%
+  setNames(c("X", "Y"))
+
+# Plot the shapefile with ggplot2 and add the raster data as a background layer
+NoCentsRanch <- ggplot() +
+  geom_raster(data = elevation_df, aes(x = x, y = y, fill = raster_DF_crane_prop)) +    # Plot the raster data
+  geom_sf(data = crane_prop_sf, color = "black", fill = "transparent") +       # Plot the shapefile
+  geom_polygon(data = yard_boundary_df, aes(x = X, y = Y), fill = "orange", alpha = 0.5) +
+  geom_text(data = yard_centroid_df, aes(x = X, y = Y, label = "YARD"), color = "black") +
+  geom_polygon(data = pond_boundary_df, aes(x = X, y = Y), fill = "lightblue", alpha = 0.5) +
+  geom_text(data = pond_centroid_df, aes(x = X, y = Y, label = "POND"), color = "black") +
+  geom_point(data = sampling_points_df_final, aes(x = X, y = Y), color = "red", size = 2) +  # Plot the final sampling points
+  geom_text(data = sampling_points_df_final, aes(x = X, y = Y, label = Sample_Number), 
+            color = "black", vjust = 0, hjust = -0.5) +                # Adding labels to the sampling points
+  scale_fill_viridis_c() +                                                              # Use Viridis color scale (you can change this)
+  coord_sf(crs = st_crs(crane_prop_sf)) +                                     # Set the coordinate system for the plot
+  labs(x = "Longitude", y = "Latitude", fill = "Elevation (ft)", title = "No Cents Ranch DEM w/ Sampling Locations") +
+  scale_x_continuous(labels = function(x) decimal_to_dms_with_directions(x, "x"), expand = c(0, 0)) +  # Use custom labeling for X-axis
+  scale_y_continuous(labels = function(y) decimal_to_dms_with_directions(y, "y"), expand = c(0, 0)) +  # Use custom labeling for Y-axis
+  theme(axis.title.x = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(size = 8, color = "black"),
+        axis.title.y = element_text(size = 12, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        legend.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "right",
+        legend.justification = "center", 
+        plot.title = element_text(hjust = 0.5))
+NoCentsRanch
+
+ggsave("NoCentsRanch.jpeg", NoCentsRanch , dpi = 300)
+```
+

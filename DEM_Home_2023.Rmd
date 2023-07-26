@@ -1,0 +1,316 @@
+---
+title: "DEM_Home"
+author: "Walker Crane"
+date: "2023-07-14"
+output: html_document
+---
+
+```{r}
+#Load necessary packages
+#library(ithir)
+library(sp)
+library(raster)
+library(rgdal)
+library(leaflet)
+library(magrittr)
+library(RSAGA)
+library(envirem)
+library(lidR)
+library(htmltools)
+library(sf)
+library(ggplot2)
+```
+
+#Load land parcels of Milam County, Select home polygon shape
+```{r}
+# Read the shapefile into a spatial object
+data.shape <- st_read("G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap21-landparcels_48331_milam_202101.shp")
+
+# Check the dimensions of the geometries
+geom_dimensions <- st_dimension(data.shape$geometry)
+print(geom_dimensions)
+
+# Normalize the dimensions of the geometries
+data.shape <- st_zm(data.shape, which_dimension = max(geom_dimensions))
+
+# Define the target CRS (EPSG 6269)
+target_crs <- st_crs(6269)
+
+# Reproject the shapefile to the target CRS
+data.shape_reproj <- st_transform(data.shape, crs = target_crs)
+
+
+# Check the dimension of the sub-geometry causing the warning
+sub_geom_dim <- st_dimension(data.shape$geometry)
+
+# Normalize the geometry dimensions
+if (any(sub_geom_dim != sub_geom_dim[1])) {
+  data.shape <- st_as_sf(data.shape, coords = sub_geom_dim[1])
+}
+
+# Define the parameters for filtering
+last_name <- "Crane"
+address <- "701"
+
+# Filter rows based on the parameters
+crane_property <- subset(data.shape, grepl(last_name, OWNER_NAME, ignore.case = TRUE) & SITUS_NUM == address)
+plot(crane_property$geometry)
+list(crane_property$geometry)
+crane_property_crs <- print(crs(crane_property))
+```
+
+#Load milam county 1m resolution
+```{r}
+library(ggplot2)
+library(sf)
+library(raster)
+
+# Read the DEM raster
+dem <- raster("USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif")
+plot(dem)
+
+# Check the CRS of the DEM raster
+dem_crs <- crs(dem)
+print(dem_crs)
+```
+
+
+#Lat, Long Crane
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(scales)
+library(sf)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+raster_path <- "USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+parcel_path <- "stratmap21-landparcels_48331_milam_202101.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Define the parameters for filtering
+last_name <- "Crane"
+address <- "701"
+crane_parcel_data <- subset(parcel_data, grepl(last_name, OWNER_NAME, ignore.case = TRUE) & SITUS_NUM == address)
+
+# Step 3: Reproject the land parcel polygon to match the CRS of the raster
+crane_parcel_data <- spTransform(crane_parcel_data, crs(raster_data))
+
+# Step 4: Clip the raster using the land parcel polygon
+raster_clip <- mask(raster_data, crane_parcel_data)
+
+# Step 5: Get the extent of the land parcel polygon
+crane_parcel_extent <- extent(crane_parcel_data)
+
+# Step 4: Convert the land parcel polygon to WGS84 (EPSG:4326)
+crane_parcel_data_wgs84 <- st_transform(crane_parcel_data, crs = "+init=EPSG:4326")
+
+# Step 5: Convert the clipped raster to WGS84 (EPSG:4326)
+raster_clip_wgs84 <- projectRaster(raster_clip, crs = "+init=EPSG:4326")
+
+# Step 6: Convert the raster to a data frame for plotting with ggplot2
+raster_df <- as.data.frame(raster_clip_wgs84, xy = TRUE)
+
+# Step 7: Plot the clipped raster using ggplot2
+p <- ggplot(raster_df, aes(x = x, y = y, fill = Layer_1)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = terrain.colors(255)) +
+  labs(x = "Longitude", y = "Latitude", title = "DEM of No Cents Ranch") +
+  theme_minimal()
+
+# Add a legend inside the plot
+p + theme(legend.position = "bottomright") +
+  guides(fill = guide_colorbar(title = "Elevation", title.position = "top", barwidth = 8, barheight = 0.5))
+
+```
+
+#Easting and Northing Plot
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(plotfunctions)
+library(scales)
+library(sf)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap21-landparcels_48331_milam_202101.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Define the parameters for filtering
+last_name <- "Crane"
+address <- "701"
+
+crane_parcel_data <- subset(parcel_data, grepl(last_name, OWNER_NAME, ignore.case = TRUE) & SITUS_NUM == address)
+
+# Step 3: Reproject the land parcel polygon to match the CRS of the raster
+crane_parcel_data <- spTransform(crane_parcel_data, crs(raster_data))
+
+# Step 4: Clip the raster using the land parcel polygon
+raster_clip <- mask(raster_data, crane_parcel_data)
+
+# Step 5: Get the extent of the land parcel polygon
+crane_parcel_extent <- extent(crane_parcel_data)
+
+# Step 6: Plot the clipped raster with specified extent
+crane_DEM<-plot(raster_clip, col = terrain.colors(255), main = "DEM of No Cents Ranch", ext = crane_parcel_extent, xlab = "Easting (m)", ylab = "Northing (m)")
+crane_DEM <- jpeg("DigitalElevationModel_NoCentsRanch.jpeg")
+plot(raster_clip, col = terrain.colors(255), main = "DEM of No Cents Ranch", ext = crane_parcel_extent, xlab = "Easting (m)", ylab = "Northing (m)")
+dev.off()
+
+# Step 7: Add a legend inside the plot
+legend("bottomright", legend = "Elevation", fill = terrain.colors(255), title = "Legend", bty = "n", outset = c(0.02, 0.02))
+```
+#Morgan
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(plotfunctions)
+library(scales)
+library(sf)
+
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(20505327, 19486, 58839, 19908)
+
+# Use %in% to filter rows
+morgan_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Reproject the land parcel polygon to match the CRS of the raster
+morgan_prop <- spTransform(morgan_prop, crs(raster_data))
+
+# Step 4: Clip the raster using the land parcel polygon
+raster_clip <- mask(raster_data, morgan_prop)
+
+# Step 5: Get the extent of the land parcel polygon
+morgan_parcel_extent <- extent(morgan_prop)
+
+# Step 6: Plot the clipped raster with specified extent using the base R plot function
+plot(raster_clip, col = terrain.colors(255), main = "Grover & Sue Morgan Property", xlab = "Easting (m)", ylab = "Northing (m)")
+
+# Step 7: Add the filtered parcel data
+plot(morgan_prop, add = TRUE, col = "black", lwd = 2)
+
+# Step 8: Add Prop_ID labels inside each polygon
+text(x = coordinates(morgan_prop)[, 1], y = coordinates(morgan_prop)[, 2],
+     labels = morgan_prop$Prop_ID, col = "black", cex = 0.7)
+
+# Step 9: Add a legend inside the plot using plotfunctions
+add_legend(legend = "Elevation", fill = terrain.colors(255), title = "Legend", bty = "n", outset = c(0.02, 0.02), pos = "bottomright")
+```
+
+# Morgan, Lat Long
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(scales)
+library(sf)
+library(sp)
+library(terra)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+# raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_13_n31w097_20191107.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(20505327, 19486, 58839, 19908)
+
+# Use %in% to filter rows
+morgan_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Set the CRS of the shapefile to match the CRS of the raster
+proj4string(morgan_prop) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+proj4string(morgan_prop)
+projection(raster_data) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+projection(raster_data)
+
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+raster_df$Elev_Feet <- raster_df$Layer_1*3.28084
+
+# Step 5: Convert parcel_data to an sf object
+morgan_prop_sf <- st_as_sf(morgan_prop)
+
+# Step 6: Plot the shapefile with ggplot2 and add the raster data as a background layer
+ggplot() +
+  geom_sf(data = morgan_prop_sf, color = "black", fill = "transparent") + # Plot the shapefile
+  geom_raster(data = raster_df, aes(x = x, y = y, fill = Elev_Feet)) +      # Plot the raster data
+  scale_fill_viridis_c() +                                                # Use Viridis color scale (you can change this)
+  coord_sf(crs = st_crs(morgan_prop_sf)) +                                # Set the coordinate system for the plot
+  theme_void()
+
+```
+#Morgan Coordinates
+```{r}
+# Step 1: Load the required libraries
+library(rasterVis)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_13_n31w097_20191107.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(20505327, 19486, 58839, 19908)
+
+# Use %in% to filter rows
+morgan_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Set the CRS of the shapefile to match the CRS of the raster
+proj4string(morgan_prop) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+proj4string(morgan_prop)
+projection(raster_data) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+projection(raster_data)
+
+# Step 4: Convert parcel_data to an sf object
+morgan_prop_sf <- st_as_sf(morgan_prop)
+
+# Step 4: Clip the raster using the land parcel polygon
+raster_clip <- mask(raster_data, morgan_prop)
+raster_clip <- raster_clip*3.28084
+
+# Step 5: Get the extent of the land parcel polygon
+morgan_parcel_extent <- extent(morgan_prop)
+
+
+breaks=c(440,430,420,410,400, 390, 380,370, 360) #set breaks
+pal <-colorRampPalette(c("white", "blue"))
+
+# Step 7: Plot the clipped raster with specified extent using the base R plot function
+plot(raster_clip, col = pal(8), ext = morgan_parcel_extent + 0.001, 
+     main = "Grover & Sue Morgan Property Elevation (Feet)", xlab = "Longitude", ylab = "Latitude", breaks = cuts)
+
+# Step 8: Add the filtered parcel data
+plot(morgan_prop, add = TRUE, lwd = 2)
+
+
+# Step 10: Save the combined plot to a PDF file with max resolution and size of 5x5 inches
+pdf("MorganProperty_plot.pdf", width = 5, height = 5, pointsize = 10)  # Adjust width and height for your desired size
+# Repeat Step 6 to Step 9 to recreate the plot for the PDF
+dev.off()  # Close the PDF device
+```
+
