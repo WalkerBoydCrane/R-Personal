@@ -609,7 +609,7 @@ spdf_cattle_lot <- st_as_sf(spdf_cattle_lot)
 class(spdf_cattle_lot)
 
 #######################################################################################################################
-#Slough
+#slough
 # Replace these values with your DMS coordinates for the five points
 lon_deg <- c(96, 96, 96, 96, 96, 96, 96, 96)
 lon_min <- c(55, 55, 55, 55, 55, 55, 55, 55)
@@ -712,7 +712,7 @@ st_as_sf(buffer_sf)
 class(buffer_sf)
 
 #####################################################################################################################################
-#Slough
+#tank
 library(sf)
 library(ggplot2)
 
@@ -735,22 +735,22 @@ x_dms <- c("96°55'59.07\" W", "96°55'54.53\" W", "96°55'54.48\" W", "96°55'5
 x_decimal <- dms_to_decimal(x_dms)
 y_decimal <- dms_to_decimal(y_dms)
 
-# Create a data frame containing the Decimal Degrees coordinates for the slough_polyline
-slough_polyline_data <- data.frame(X = x_decimal, Y = y_decimal)
-slough_polyline_data$point <- 1:nrow(slough_polyline_data)
+# Create a data frame containing the Decimal Degrees coordinates for the tank_polyline
+tank_polyline_data <- data.frame(X = x_decimal, Y = y_decimal)
+tank_polyline_data$point <- 1:nrow(tank_polyline_data)
 
 # Sort the data frame based on the "point" column
-slough_polyline_data_ordered <- slough_polyline_data[order(slough_polyline_data$point), ]
+tank_polyline_data_ordered <- tank_polyline_data[order(tank_polyline_data$point), ]
 
 # Convert the data frame to a LINESTRING spatial object using sf
-slough_polyline_sf <- st_sfc(st_linestring(as.matrix(slough_polyline_data_ordered[, c("X", "Y")]), dim = "XY"), crs = 4326)
+tank_polyline_sf <- st_sfc(st_linestring(as.matrix(tank_polyline_data_ordered[, c("X", "Y")]), dim = "XY"), crs = 4326)
 
-# Create a buffer_slough around the line (10 meters)
-buffer_slough_size <- 20  # 10 meters
-buffer_slough_sf <- st_buffer(slough_polyline_sf, dist = buffer_slough_size)
-plot(buffer_slough_sf)
-st_as_sf(buffer_slough_sf)
-class(buffer_slough_sf)
+# Create a buffer_tank around the line (10 meters)
+buffer_tank_size <- 20  # 10 meters
+buffer_tank_sf <- st_buffer(tank_polyline_sf, dist = buffer_tank_size)
+plot(buffer_tank_sf)
+st_as_sf(buffer_tank_sf)
+class(buffer_tank_sf)
 
 #####################################################################################################################################
 #Catfish tank creek
@@ -878,9 +878,9 @@ cattle_lot_centroid_df <- st_coordinates(cattle_lot_centroid) %>%
   setNames(c("X", "Y"))
 
 # Calculate the centroid of the polygon
-slough_centroid <- st_centroid(spdf_slough)
+tank_centroid <- st_centroid(spdf_tank)
 
-slough_centroid_df <- st_coordinates(slough_centroid) %>%
+tank_centroid_df <- st_coordinates(tank_centroid) %>%
   as.data.frame() %>%
   setNames(c("X", "Y"))
 
@@ -899,7 +899,7 @@ MainPasture<- ggplot() +
   geom_text(data = tank_centroid_df_4, aes(x = X, y = Y, label = "TANK"), color = "black", size = 2) +
   geom_polygon(data = cattle_lot, aes(x = X1, y = X2), fill = "orange") +
   geom_text(data = cattle_lot_centroid_df, aes(x = X, y = Y, label = "CATTLE LOT"), color = "black", nudge_y = 0.00025, size = 2) +
-  geom_text(data = slough_centroid_df, aes(x = X, y = Y, label = "SLOUGH"), color = "black", size = 2) +
+  geom_text(data = tank_centroid_df, aes(x = X, y = Y, label = "tank"), color = "black", size = 2) +
   geom_point(data = sampling_points_df, aes(x = X, y = Y), color = "red", size = 2) +  # Plot the final sampling points
   geom_text(data = sampling_points_df, aes(x = X, y = Y, label = Sample_Number), 
             color = "black", nudge_x = -0.00025, nudge_y=-0.00025 ) +                # Adding labels to the sampling points
@@ -1462,6 +1462,358 @@ MudcatPerchLand<- ggplot() +
 MudcatPerchLand
 
 ggsave("DEM_Sampling_MudcatPerchLand.jpeg", MudcatPerchLand ,height = 7, width = 7, dpi = 300)
+```
+
+#Gause 
+```{r}
+# Step 1: Load the required libraries
+library(raster)
+library(rgdal)
+library(ggplot2)
+library(scales)
+library(sf)
+library(sp)
+library(terra)
+library(rasterVis)
+library(ggspatial)
+
+# Step 2: Read the raster data and land parcel polygon shapefile
+#raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_one_meter_x69y340_TX_Eastern_B1_2018.tif"
+raster_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/USGS_13_n31w097_20191107.tif"
+parcel_path <- "G:/Soil Sci 585/HW2/Soil-585/Homework 2/stratmap22-landparcels_48331_milam_202202.shp"
+
+raster_data <- raster(raster_path)
+parcel_data <- readOGR(parcel_path)
+
+# Prop_ID values to match
+prop_num <- c(18024)
+
+# Use %in% to filter rows
+morgan_prop <- parcel_data[parcel_data$Prop_ID %in% prop_num, ]
+
+# Step 3: Set the CRS of the shapefile to match the CRS of the raster
+proj4string(morgan_prop) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+proj4string(morgan_prop)
+projection(raster_data) <- CRS("+init=epsg:4326 +proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0")
+projection(raster_data)
+
+morgan_prop_sf <- st_as_sf(morgan_prop)
+sampling_area <- morgan_prop_sf
+
+#####################################################################################
+# Function to convert decimal degrees to DMS format with cardinal directions
+decimal_to_dms_with_directions <- function(decimal_degrees, axis) {
+  degrees <- floor(abs(decimal_degrees))
+  minutes <- floor((abs(decimal_degrees) - degrees) * 60)
+  seconds <- round((abs(decimal_degrees) - degrees - minutes/60) * 3600, 2)
+  
+  direction <- ifelse(axis == "x", ifelse(decimal_degrees < 0, "W", "E"), ifelse(decimal_degrees < 0, "S", "N"))
+  
+  return(paste0(degrees, "°", minutes, "'", seconds, "\" ", direction))
+}
+
+#####################################################################################
+# Function to convert DMS (Degrees-Minutes-Seconds) to decimal degrees (DD)
+dms_to_dd <- function(degrees, minutes, seconds, direction) {
+  sign <- ifelse(direction %in% c("S", "W"), -1, 1)
+  dd <- sign * (abs(degrees) + minutes / 60 + seconds / 3600)
+  return(dd)
+}
+
+# Function to convert meters to decimal degrees
+meters_to_dd <- function(meters, latitude) {
+  # Earth's radius in meters
+  earth_radius <- 6378137
+  
+  # Conversion factor (approximation for small distances)
+  meters_per_degree <- (2 * pi * earth_radius) / 360
+  
+  # Calculate the distance in decimal degrees
+  dd <- meters / meters_per_degree
+  
+  return(dd)
+}
+#####################################################################################
+# Creating function to create number of samples per area
+set_sampling_points <- function(polygon_sf) {
+  # Get the total area of the polygon in acres from the "GIS_AREA" column
+  total_area_acres <- sum(polygon_sf$GIS_AREA)
+  
+  # Set the number of sampling points based on the area criteria
+  if (total_area_acres <= 1) {
+    num_sampling_points <- 10
+  } else if (total_area_acres > 1 & total_area_acres <= 5) {
+    num_sampling_points <- round(total_area_acres * 2)
+  } else if (total_area_acres > 5 & total_area_acres <= 20) {
+    num_sampling_points <- round(total_area_acres / 2)
+  } else {
+    num_sampling_points <- round(total_area_acres/10)
+  }
+  
+  return(num_sampling_points)
+}
+
+# Assuming you have the "morgan_prop_sf" data frame with the column "GIS_AREA"
+num_sampling_points <- set_sampling_points(sampling_area)
+
+print(num_sampling_points)  # This will give you the number of sampling points based on the area of the polygons and the specified criteria
+plot(morgan_prop_sf)
+####################################################################################
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+
+# Step 5: Convert parcel_data to an sf object
+sampling_area <- st_as_sf(morgan_prop)
+crs(sampling_area)
+
+#####################################################################################################################################
+# Buffer distance in meters
+buffer_distance_meters <- 30
+
+#Pond 1
+# Example of pond_location in DMS format
+lon_deg_pond1 <- 96
+lon_min_pond1 <- 39
+lon_sec_pond1 <- 59.54
+lon_dir_pond1 <- "W"  # West (use "E" for East)
+
+lat_deg_pond1 <- 30
+lat_min_pond1 <- 47
+lat_sec_pond1 <- 44.73
+lat_dir_pond1 <- "N"  # North (use "S" for South)
+
+# Convert DMS to decimal degrees (DD) for longitude and latitude
+lon_pond_dd_pond1 <- dms_to_dd(lon_deg_pond1, lon_min_pond1, lon_sec_pond1, lon_dir_pond1)
+lat_pond_dd_pond1 <- dms_to_dd(lat_deg_pond1, lat_min_pond1, lat_sec_pond1, lat_dir_pond1)
+
+# Convert buffer distance from meters to decimal degrees
+buffer_distance_dd_pond1 <- meters_to_dd(buffer_distance_meters, lat_pond_dd_pond1)
+
+# Create the pond_location as a point in sf format
+pond_central_point_pond1 <- st_point(c(lon_pond_dd_pond1, lat_pond_dd_pond1))
+
+# Add a buffer of 50 meters around the pond_central_point
+pond_buffer_pond1 <- st_buffer(pond_central_point_pond1, dist = buffer_distance_dd_pond1, crs = "+init=epsg:4326")
+
+# Extract the x (longitude) and y (latitude) coordinates from the circle
+circle_coords_pond1 <- st_coordinates(pond_buffer_pond1)
+
+# Create a dataframe with the circle coordinates
+circle_df_pond1 <- data.frame(lon = circle_coords_pond1[, "X"], lat = circle_coords_pond1[, "Y"])
+
+pond_boundary_Poly_pond1 <- Polygon(circle_df_pond1)
+pond_boundary_Poly_ps_pond1 <- Polygons(list(pond_boundary_Poly_pond1),1)
+pond_boundary_Poly_sps_pond1 <- SpatialPolygons(list(pond_boundary_Poly_ps_pond1))
+plot(pond_boundary_Poly_sps_pond1)
+proj4string(pond_boundary_Poly_sps_pond1) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+data = data.frame(f=99.9)
+spdf_pond_pond1 = SpatialPolygonsDataFrame(pond_boundary_Poly_sps_pond1,data)
+spdf_pond_pond1
+summary(spdf_pond_pond1)
+
+spdf_pond_pond1 <- st_as_sf(spdf_pond_pond1)
+spdf_pond_pond1 <- st_transform(spdf_pond_pond1, st_crs(sampling_area))
+
+#######################################################################################################################
+#Tank
+# Replace these values with your DMS coordinates for the five points
+lon_deg <- c(96, 96, 96, 96, 96, 96, 96, 96)
+lon_min <- c(40, 39, 39, 39, 39, 39, 39, 39)
+lon_sec <- c(0.15, 58.84, 56.88, 54.71,54.68, 57.09, 58.77, 59.68) 
+lon_dir <- rep("W", 8)  # West (use "E" for East)
+
+lat_deg <- c(30, 30, 30, 30, 30, 30, 30, 30)
+lat_min <- c(47, 47, 47, 47, 47, 47, 47, 47)
+lat_sec <- c(32.62, 30.79, 31.01, 32.65, 34.92, 32.31, 32.49, 32.96)
+lat_dir <- rep("N", 8)  # North (use "S" for South)
+
+# Convert DMS to decimal degrees (DD) for longitude and latitude for all five points
+lon_dd <- dms_to_dd(lon_deg, lon_min, lon_sec, lon_dir)
+lat_dd <- dms_to_dd(lat_deg, lat_min, lat_sec, lat_dir)
+
+# Create a dataframe for lot' coordinates
+# Create an sf polygon object from the five points (assumes a closed polygon)
+tank <- as.data.frame(list(rbind(c(lon_dd[1], lat_dd[1]),  # Point 1
+                                         c(lon_dd[2], lat_dd[2]),  # Point 2
+                                         c(lon_dd[3], lat_dd[3]),  # Point 3
+                                         c(lon_dd[4], lat_dd[4]),  # Point 4
+                                         c(lon_dd[5], lat_dd[5]),  # Point 5
+                                         c(lon_dd[6], lat_dd[6]),  # Point 6
+                                         c(lon_dd[7], lat_dd[7]),  # Point 7
+                                         c(lon_dd[8], lat_dd[8]),  # Point 8
+                                         c(lon_dd[1], lat_dd[1]))))
+
+tank_Poly <- Polygon(tank)
+tank_Poly_ps <- Polygons(list(tank_Poly),1)
+tank_Poly_sps <- SpatialPolygons(list(tank_Poly_ps))
+proj4string(tank_Poly_sps) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+data = data.frame(f=99.9)
+spdf_tank = SpatialPolygonsDataFrame(tank_Poly_sps,data)
+spdf_tank
+summary(spdf_tank)
+
+# Set as simple feature
+spdf_tank <- st_as_sf(spdf_tank)
+spdf_tank <- st_transform(spdf_tank, st_crs(sampling_area))
+spdf_tank <- st_as_sf(spdf_tank)
+
+####################################################################################################################
+#Barn
+# Replace these values with your DMS coordinates for the five points
+lon_deg <- c(96, 96, 96, 96)
+lon_min <- c(39, 39, 39, 39)
+lon_sec <- c(55.83, 56.26, 56.13, 55.68) 
+lon_dir <- rep("W", 4)  # West (use "E" for East)
+
+lat_deg <- c(30, 30, 30, 30)
+lat_min <- c(47, 47, 47, 47)
+lat_sec <- c(29.86, 29.68, 29.43, 29.57)
+lat_dir <- rep("N", 4)  # North (use "S" for South)
+
+# Convert DMS to decimal degrees (DD) for longitude and latitude for all five points
+lon_dd <- dms_to_dd(lon_deg, lon_min, lon_sec, lon_dir)
+lat_dd <- dms_to_dd(lat_deg, lat_min, lat_sec, lat_dir)
+
+# Create a dataframe for lot' coordinates
+# Create an sf polygon object from the five points (assumes a closed polygon)
+barn <- as.data.frame(list(rbind(c(lon_dd[1], lat_dd[1]),  # Point 1
+                                         c(lon_dd[2], lat_dd[2]),  # Point 2
+                                         c(lon_dd[3], lat_dd[3]),  # Point 3
+                                         c(lon_dd[4], lat_dd[4]),  # Point 4
+                                         c(lon_dd[1], lat_dd[1]))))
+
+barn_Poly <- Polygon(barn)
+barn_Poly_ps <- Polygons(list(barn_Poly),1)
+barn_Poly_sps <- SpatialPolygons(list(barn_Poly_ps))
+proj4string(barn_Poly_sps) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+data = data.frame(f=99.9)
+spdf_barn = SpatialPolygonsDataFrame(barn_Poly_sps,data)
+spdf_barn
+summary(spdf_barn)
+
+# Set as simple feature
+spdf_barn <- st_as_sf(spdf_barn)
+spdf_barn <- st_transform(spdf_barn, st_crs(sampling_area))
+spdf_barn <- st_as_sf(spdf_barn)
+
+####################################################################################################################
+# Step 4: Convert raster data to a data frame
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+raster_df$Elev_Feet <- raster_df$Layer_1*3.28084
+
+# Step 6: Clip the raster using the land parcel polygon
+raster_clip <- crop(raster_data, st_buffer(sampling_area, dist = 20))
+
+# Step 7: Save the raster layer to a Geotiff file
+writeRaster(raster_clip, filename = "raster_Gause_prop.tif", format = "GTiff", overwrite= TRUE)
+
+# Step 8; Load DEM tiff
+elevation_gause <- raster("raster_Gause_prop.tif")
+
+# Convert the raster data to a data.frame
+elevation_gause_df <- raster::rasterToPoints(elevation_gause)
+elevation_gause_df <- as.data.frame(elevation_gause_df)
+plot(raster_clip)
+
+#####################################################################################################################################
+
+#####################################################################################################################################
+# Define the sampling area within the property boundaries (can be the entire property or a specific region)
+sampling_area <- st_as_sf(morgan_prop_sf)
+sampling_area <- st_transform(sampling_area, st_crs(morgan_prop_sf))
+
+sampling_area_excluded_ponds1 <- st_difference(sampling_area, spdf_pond_pond1)
+plot(sampling_area_excluded_ponds1)
+
+sampling_area_excluded_ponds12 <- st_difference(sampling_area_excluded_ponds1, spdf_tank)
+plot(sampling_area_excluded_ponds12)
+
+sampling_area_excluded_all<- st_difference(sampling_area_excluded_ponds12, spdf_barn)
+plot(sampling_area_excluded_all)
+
+# Generate equally spaced sampling points within the property boundaries based on sample number function
+sampling_points <- st_sample(sampling_area_excluded_all, type = "regular", size = num_sampling_points)
+
+# Extract longitude (X) and latitude (Y) values from the POINT geometry
+sampling_points_df <- as.data.frame(st_coordinates(sampling_points))
+names(sampling_points_df) <- c("X", "Y")  # Rename columns for clarity
+
+# Add DMS coordinates to sampling_points_df_final data frame
+sampling_points_df$Longitude_DMS <- decimal_to_dms_with_directions(sampling_points_df$X, "x")
+sampling_points_df$Latitude_DMS <- decimal_to_dms_with_directions(sampling_points_df$Y, "y")
+
+# Add a new column "Sample_Number" to the sampling_points_df_final data frame with the sampling numbers
+sampling_points_df$Sample_Number <- 1:nrow(sampling_points_df)
+
+#Create .csv file with sample points, coordinates, and number
+GauseSamplingPoints <- write.csv(sampling_points_df, "GauseSamplingPoints.csv")
+
+##########################################################################################################
+# Crop 'polygon_to_crop' using 'cropping_polygon'
+cropped_tank <- st_intersection(spdf_tank, sampling_area)
+cropped_tank <- st_as_sf(cropped_tank)
+
+##########################################################################################################
+# Calculate the centroid of the polygon
+#Pond 1
+tank_centroid_1 <- st_centroid(spdf_pond_pond1)
+
+tank_centroid_df_1 <- st_coordinates(tank_centroid_1) %>%
+  as.data.frame() %>%
+  setNames(c("X", "Y"))
+
+#Pond 2
+tank_centroid_2 <- st_centroid(spdf_tank)
+
+tank_centroid_df_2 <- st_coordinates(tank_centroid_2) %>%
+  as.data.frame() %>%
+  setNames(c("X", "Y"))
+  
+#Barn
+barn_centroid_3 <- st_centroid(spdf_barn)
+
+barn_centroid_3_3 <- st_coordinates(barn_centroid_3) %>%
+  as.data.frame() %>%
+  setNames(c("X", "Y"))
+
+
+#####################################################################################################################################
+# Plot the shapefile with ggplot2 and add the raster data as a background layer
+# Manually specify the three specific values for the breaks on the x-axis (DMS format)
+breaks_x <- c(-96.668, -96.666, -96.664, -96.662)
+
+Gause<- ggplot() +
+  geom_raster(data = elevation_gause_df, aes(x = x, y = y, fill = raster_Gause_prop*3.28084)) +    # Plot the raster data
+  geom_sf(data = spdf_pond_pond1, fill = "lightblue") +
+  geom_text(data = tank_centroid_df_1, aes(x = X, y = Y, label = "TANK"), color = "black", size = 2) +
+  geom_sf(data = cropped_tank, fill = "lightblue") +
+  geom_text(data = tank_centroid_df_2, aes(x = X, y = Y, label = "TANK"), color = "black", size = 2, nudge_y = -0.0001) +
+  geom_sf(data = spdf_barn, fill = "orange") +
+  geom_text(data = barn_centroid_3_3, aes(x = X, y = Y, label = "BARN"), color = "black", size = 2, nudge_y = 0.00015) +
+  geom_sf(data = sampling_area, color = "black", fill = "transparent") +       # Plot the shapefile
+  geom_point(data = sampling_points_df, aes(x = X, y = Y), color = "red", size = 2) +  # Plot the final sampling points
+  geom_text(data = sampling_points_df, aes(x = X, y = Y, label = Sample_Number),
+            color = "black", nudge_x = -0.00015, nudge_y=-0.00015) +                # Adding labels to the sampling points
+  scale_fill_viridis_c() +                                                              # Use Viridis color scale (you can change this)
+  coord_sf(crs = st_crs(sampling_area)) +                                     # Set the coordinate system for the plot
+  labs(x = "Longitude", y = "Latitude", fill = "Elevation (ft)", title = "Gause DEM w/ Sampling Locations") + # Add the following line to set the desired breaks on the x-axis
+  scale_x_continuous(labels = function(x) decimal_to_dms_with_directions(x, "x"), expand = c(0, 0), breaks =  breaks_x) +
+  scale_y_continuous(labels = function(y) decimal_to_dms_with_directions(y, "y"), expand = c(0, 0)) +  # Use custom labeling for Y-axis
+  theme(axis.title.x = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(size = 7, color = "black"),
+        axis.title.y = element_text(size = 12, color = "black"),
+        axis.text.y = element_text(size = 7, color = "black"),
+        legend.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.position = "right",
+        legend.justification = "center", 
+        plot.title = element_text(hjust = 0.5))
+Gause
+
+ggsave("DEM_Sampling_Gause.jpeg", Gause ,height = 7, width = 7, dpi = 300)
 ```
 
 
